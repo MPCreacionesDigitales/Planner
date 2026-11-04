@@ -65,9 +65,8 @@
     const { useState, useEffect, useMemo } = React;
 
     function App() {
-      // Estado de tareas: array de objetos { id, text, date (YYYY-MM-DD), completed, category }
       const [tareas, setTareas] = useState(() => {
-        const saved = localStorage.getItem('camino_planner_tareas_v2');
+        const saved = localStorage.getItem('camino_planner_tareas_v3');
         if (saved) {
           try { return JSON.parse(saved); } catch (e) { return []; }
         }
@@ -83,17 +82,13 @@
       const [categoriaNueva, setCategoriaNueva] = useState('Marketing');
       const [fechaSeleccionada, setFechaSeleccionada] = useState(() => new Date().toISOString().split('T')[0]);
       const [vista, setVista] = useState('dia'); // 'dia', 'semana', 'mes', 'historial'
-      
-      // Estado para el modal/panel de duplicar a multiples días
       const [tareaADuplicar, setTareaADuplicar] = useState(null);
       const [diasSeleccionadosMultiples, setDiasSeleccionadosMultiples] = useState([]);
 
-      // Guardar en LocalStorage
       useEffect(() => {
-        localStorage.setItem('camino_planner_tareas_v2', JSON.stringify(tareas));
+        localStorage.setItem('camino_planner_tareas_v3', JSON.stringify(tareas));
       }, [tareas]);
 
-      // Añadir nueva tarea
       const agregarTarea = (e) => {
         e.preventDefault();
         if (!nuevaTarea.trim()) return;
@@ -110,17 +105,14 @@
         setNuevaTarea('');
       };
 
-      // Cambiar estado de completado
       const toggleTarea = (id) => {
         setTareas(tareas.map(t => t.id === id ? { ...t, completed: !t.completed } : t));
       };
 
-      // Eliminar tarea
       const eliminarTarea = (id) => {
         setTareas(tareas.filter(t => t.id !== id));
       };
 
-      // Duplicar tarea exacta a un solo día (mañana o fecha actual)
       const duplicarTareaUnica = (tarea) => {
         const [y, m, d] = tarea.date.split('-').map(Number);
         const proxFecha = new Date(y, m - 1, d + 1).toISOString().split('T')[0];
@@ -133,7 +125,6 @@
         setTareas([duplicada, ...tareas]);
       };
 
-      // Replicar tarea a múltiples días seleccionados
       const aplicarMultiplesDias = () => {
         if (!tareaADuplicar || diasSeleccionadosMultiples.length === 0) return;
 
@@ -149,14 +140,13 @@
         setDiasSeleccionadosMultiples([]);
       };
 
-      // Navegación rápida por días (+1 / -1)
       const cambiarDia = (dias) => {
         const [y, m, d] = fechaSeleccionada.split('-').map(Number);
         const curr = new Date(y, m - 1, d + dias);
         setFechaSeleccionada(curr.toISOString().split('T')[0]);
       };
 
-      // Obtener los 7 días de la semana actual basados en fechaSeleccionada
+      // Días de la semana actual basados en fechaSeleccionada
       const diasDeLaSemana = useMemo(() => {
         const [y, m, d] = fechaSeleccionada.split('-').map(Number);
         const curr = new Date(y, m - 1, d);
@@ -179,7 +169,7 @@
         return semana;
       }, [fechaSeleccionada]);
 
-      // Tareas filtradas por vista
+      // Tareas filtradas por vista activa
       const tareasFiltradas = useMemo(() => {
         if (vista === 'dia') {
           return tareas.filter(t => t.date === fechaSeleccionada);
@@ -217,12 +207,29 @@
         return dias;
       }, [tareas]);
 
+      // Cálculo de porcentajes de avance diario y semanal
+      const estadisticasAvance = useMemo(() => {
+        // Avance del día seleccionado
+        const tareasDia = tareas.filter(t => t.date === fechaSeleccionada);
+        const totalDia = tareasDia.length;
+        const completadasDia = tareasDia.filter(t => t.completed).length;
+        const porcentajeDia = totalDia > 0 ? Math.round((completadasDia / totalDia) * 100) : 0;
+
+        // Avance global de la semana actual
+        const fechasSemana = diasDeLaSemana.map(d => d.fechaStr);
+        const tareasSemana = tareas.filter(t => fechasSemana.includes(t.date));
+        const totalSemana = tareasSemana.length;
+        const completadasSemana = tareasSemana.filter(t => t.completed).length;
+        const porcentajeSemana = totalSemana > 0 ? Math.round((completadasSemana / totalSemana) * 100) : 0;
+
+        return { porcentajeDia, totalDia, completadasDia, porcentajeSemana, totalSemana, completadasSemana };
+      }, [tareas, fechaSeleccionada, diasDeLaSemana]);
+
       const stats = useMemo(() => {
         const total = tareas.length;
         const completadas = tareas.filter(t => t.completed).length;
-        const porcentaje = total > 0 ? Math.round((completadas / total) * 100) : 0;
         const diasPerfectos = historial3Meses.filter(d => d.estado === 'perfecto').length;
-        return { total, completadas, porcentaje, diasPerfectos };
+        return { total, completadas, diasPerfectos };
       }, [tareas, historial3Meses]);
 
       return (
@@ -237,27 +244,42 @@
               Planificador Interactivo Avanzado
             </h1>
             <p className="text-xs sm:text-sm text-slate-400 max-w-xl mx-auto">
-              Organiza tu agenda diaria, visualiza tu semana completa en formato calendario, duplica tareas y replícalas a múltiples días con facilidad.
+              Visualiza tu avance diario y semanal en tiempo real, navega por tu historial de 3 meses haciendo clic en los días y replica tus tareas corporativas.
             </p>
           </header>
 
-          {/* Estadísticas */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-            <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-4 text-center">
-              <span className="text-2xl font-bold text-amber-400">{stats.total}</span>
-              <p className="text-xs text-slate-400 mt-1">Total Tareas</p>
+          {/* Tarjetas de Avance Diario y Semanal */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-5 space-y-3">
+              <div className="flex justify-between items-center">
+                <span className="text-xs uppercase font-bold text-amber-400">Avance del Día ({fechaSeleccionada})</span>
+                <span className="text-xl font-bold text-amber-400">{estadisticasAvance.porcentajeDia}%</span>
+              </div>
+              <div className="w-full bg-slate-950 h-2 rounded-full overflow-hidden border border-slate-800">
+                <div 
+                  className="bg-gradient-to-r from-amber-500 to-yellow-300 h-full transition-all duration-500" 
+                  style={{ width: `${estadisticasAvance.porcentajeDia}%` }}
+                ></div>
+              </div>
+              <p className="text-xs text-slate-400">
+                {estadisticasAvance.completadasDia} de {estadisticasAvance.totalDia} tareas completadas hoy.
+              </p>
             </div>
-            <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-4 text-center">
-              <span className="text-2xl font-bold text-emerald-400">{stats.completadas}</span>
-              <p className="text-xs text-slate-400 mt-1">Completadas</p>
-            </div>
-            <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-4 text-center">
-              <span className="text-2xl font-bold text-amber-400">{stats.porcentaje}%</span>
-              <p className="text-xs text-slate-400 mt-1">Efectividad</p>
-            </div>
-            <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-4 text-center">
-              <span className="text-2xl font-bold text-indigo-400">{stats.diasPerfectos}</span>
-              <p className="text-xs text-slate-400 mt-1">Días Exitosos (90d)</p>
+
+            <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-5 space-y-3">
+              <div className="flex justify-between items-center">
+                <span className="text-xs uppercase font-bold text-indigo-400">Avance Global de la Semana</span>
+                <span className="text-xl font-bold text-indigo-400">{estadisticasAvance.porcentajeSemana}%</span>
+              </div>
+              <div className="w-full bg-slate-950 h-2 rounded-full overflow-hidden border border-slate-800">
+                <div 
+                  className="bg-gradient-to-r from-indigo-500 to-purple-400 h-full transition-all duration-500" 
+                  style={{ width: `${estadisticasAvance.porcentajeSemana}%` }}
+                ></div>
+              </div>
+              <p className="text-xs text-slate-400">
+                {estadisticasAvance.completadasSemana} de {estadisticasAvance.totalSemana} tareas completadas esta semana.
+              </p>
             </div>
           </div>
 
@@ -535,7 +557,7 @@
             </div>
           )}
 
-          {/* VISTA 4: HISTORIAL 3 MESES */}
+          {/* VISTA 4: HISTORIAL 3 MESES CON CLIC INTERACTIVO */}
           {vista === 'historial' && (
             <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-6 space-y-6">
               <div>
@@ -543,15 +565,19 @@
                   Historial de Cumplimiento (Últimos 3 Meses)
                 </h3>
                 <p className="text-xs text-slate-400 mt-1">
-                  Registro detallado de tus últimos 90 días de productividad y disciplina.
+                  Haz clic en cualquier día para seleccionarlo y ver o gestionar sus tareas directamente.
                 </p>
               </div>
 
               <div className="flex flex-wrap gap-2 pt-2">
                 {historial3Meses.map((dia, idx) => (
-                  <div
+                  <button
                     key={idx}
-                    title={`${dia.fechaStr}: ${dia.completadas}/${dia.total} completadas`}
+                    onClick={() => {
+                      setFechaSeleccionada(dia.fechaStr);
+                      setVista('dia');
+                    }}
+                    title={`Clic para ir al ${dia.fechaStr}: ${dia.completadas}/${dia.total} completadas`}
                     className={`w-10 h-10 rounded-xl flex flex-col items-center justify-center text-[10px] font-bold border transition-transform hover:scale-110 cursor-pointer ${
                       dia.estado === 'perfecto'
                         ? 'bg-emerald-500/20 border-emerald-500 text-emerald-300 shadow-sm'
@@ -564,13 +590,13 @@
                     <span className="text-[8px] font-normal opacity-70">
                       {dia.estado === 'perfecto' ? '★' : '-'}
                     </span>
-                  </div>
+                  </button>
                 ))}
               </div>
             </div>
           )}
 
-          {/* MODAL / PANEL EXPANDIBLE PARA APLICAR TAREA A MÚLTIPLES DÍAS */}
+          {/* MODAL / PANEL PARA APLICAR TAREA A MÚLTIPLES DÍAS */}
           {tareaADuplicar && (
             <div className="bg-slate-900 border border-amber-500/50 rounded-2xl p-6 space-y-4 shadow-2xl">
               <div className="flex justify-between items-center border-b border-slate-800 pb-3">
