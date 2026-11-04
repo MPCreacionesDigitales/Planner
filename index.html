@@ -1,0 +1,443 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Planificador Diario - Camino Al Inconsciente</title>
+
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            gold: {
+              400: '#facc15',
+              500: '#eab308',
+              600: '#ca8a04',
+            }
+          }
+        }
+      }
+    }
+  </script>
+
+  <!-- React & React DOM -->
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+
+  <!-- Babel -->
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700&family=Plus+Jakarta+Sans:wght@300;400;500;600;700&display=swap');
+    
+    body {
+      font-family: 'Plus Jakarta Sans', sans-serif;
+      background-color: #0b0f19;
+      color: #f1f5f9;
+    }
+    
+    .font-cinzel {
+      font-family: 'Cinzel', serif;
+    }
+
+    ::-webkit-scrollbar {
+      width: 8px;
+    }
+    ::-webkit-scrollbar-track {
+      background: #0f172a;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #334155;
+      border-radius: 4px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: #475569;
+    }
+  </style>
+</head>
+<body class="bg-slate-950 text-slate-100 w-full h-auto">
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect, useMemo } = React;
+
+    function App() {
+      // Estado de tareas: array de objetos { id, text, date (YYYY-MM-DD), completed, category }
+      const [tareas, setTareas] = useState(() => {
+        const saved = localStorage.getItem('camino_planner_tareas');
+        if (saved) {
+          try { return JSON.parse(saved); } catch (e) { return []; }
+        }
+        // Tareas de ejemplo iniciales para que el panel luzca vivo
+        const hoy = new Date().toISOString().split('T')[0];
+        return [
+          { id: 1, text: "Optimizar campañas de Meta (9:16 y 4:5)", date: hoy, completed: true, category: "Marketing" },
+          { id: 2, text: "Revisar módulos y contenidos en Camino al Inconsciente", date: hoy, completed: false, category: "Plataforma" },
+          { id: 3, text: "Diseñar creativos y copys para nuevos infoproductos", date: hoy, completed: false, category: "Creación" }
+        ];
+      });
+
+      const [nuevaTarea, setNuevaTarea] = useState('');
+      const [categoriaNueva, setCategoriaNueva] = useState('Marketing');
+      const [fechaNueva, setFechaNueva] = useState(() => new Date().toISOString().split('T')[0]);
+      const [vista, setVista] = useState('dia'); // 'dia', 'semana', 'mes', 'historial'
+      const [fechaSeleccionada, setFechaSeleccionada] = useState(() => new Date().toISOString().split('T')[0]);
+
+      // Guardar en LocalStorage cada vez que cambien las tareas
+      useEffect(() => {
+        localStorage.setItem('camino_planner_tareas', JSON.stringify(tareas));
+      }, [tareas]);
+
+      // Añadir nueva tarea
+      const agregarTarea = (e) => {
+        e.preventDefault();
+        if (!nuevaTarea.trim()) return;
+
+        const nueva = {
+          id: Date.now(),
+          text: nuevaTarea.trim(),
+          date: fechaNueva || new Date().toISOString().split('T')[0],
+          completed: false,
+          category: categoriaNueva
+        };
+
+        setTareas([nueva, ...tareas]);
+        setNuevaTarea('');
+      };
+
+      // Cambiar estado de completado
+      const toggleTarea = (id) => {
+        setTareas(tareas.map(t => t.id === id ? { ...t, completed: !t.completed } : t));
+      };
+
+      // Eliminar tarea
+      const eliminarTarea = (id) => {
+        setTareas(tareas.filter(t => t.id !== id));
+      };
+
+      // Formatear fechas legibles
+      const formatearFechaLegible = (fechaStr) => {
+        const [yyyy, mm, dd] = fechaStr.split('-');
+        const fecha = new Date(yyyy, mm - 1, dd);
+        return fecha.toLocaleDateString('es-ES', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+      };
+
+      // Filtrar tareas según la vista activa
+      const tareasFiltradas = useMemo(() => {
+        const hoyDate = new Date(fechaSeleccionada);
+
+        if (vista === 'dia') {
+          return tareas.filter(t => t.date === fechaSeleccionada);
+        } else if (vista === 'semana') {
+          // Obtener inicio y fin de semana de la fecha seleccionada
+          const curr = new Date(fechaSeleccionada);
+          const firstDayOfWeek = new Date(curr.setDate(curr.getDate() - curr.getDay() + 1));
+          const lastDayOfWeek = new Date(curr.setDate(firstDayOfWeek.getDate() + 6));
+
+          return tareas.filter(t => {
+            const tDate = new Date(t.date);
+            return tDate >= firstDayOfWeek && tDate <= lastDayOfWeek;
+          });
+        } else if (vista === 'mes') {
+          const [selYear, selMonth] = fechaSeleccionada.split('-');
+          return tareas.filter(t => {
+            const [tYear, tMonth] = t.date.split('-');
+            return tYear === selYear && tMonth === selMonth;
+          });
+        }
+        return tareas;
+      }, [tareas, vista, fechaSeleccionada]);
+
+      // Generar reporte de los últimos 90 días (3 meses) para cumplimiento histórico
+      const historial3Meses = useMemo(() => {
+        const dias = [];
+        const hoy = new Date();
+        
+        for (let i = 0; i < 90; i++) {
+          const d = new Date(hoy);
+          d.setDate(hoy.getDate() - i);
+          const fechaStr = d.toISOString().split('T')[0];
+
+          const tareasDelDia = tareas.filter(t => t.date === fechaStr);
+          const total = tareasDelDia.length;
+          const completadas = tareasDelDia.filter(t => t.completed).length;
+          
+          let estado = 'vacio'; // 'vacio', 'incompleto', 'perfecto'
+          if (total > 0) {
+            estado = completadas === total ? 'perfecto' : 'incompleto';
+          }
+
+          dias.push({
+            fechaStr,
+            total,
+            completadas,
+            estado,
+            label: d.toLocaleDateString('es-ES', { day: 'numeric', month: 'short' })
+          });
+        }
+        return dias;
+      }, [tareas]);
+
+      // Estadísticas generales
+      const stats = useMemo(() => {
+        const total = tareas.length;
+        const completadas = tareas.filter(t => t.completed).length;
+        const porcentaje = total > 0 ? Math.round((completadas / total) * 100) : 0;
+        
+        // Días perfectos en los últimos 90 días
+        const diasPerfectos = historial3Meses.filter(d => d.estado === 'perfecto').length;
+
+        return { total, completadas, porcentaje, diasPerfectos };
+      }, [tareas, historial3Meses]);
+
+      return (
+        <div className="max-w-4xl mx-auto px-4 py-8 space-y-8">
+          
+          {/* Header Minimalista y Elegante */}
+          <header className="text-center space-y-2 border-b border-slate-800/80 pb-6">
+            <span className="text-xs font-bold tracking-widest text-amber-400 uppercase block">
+              Camino Al Inconsciente • Productividad Consciente
+            </span>
+            <h1 className="text-3xl sm:text-4xl font-cinzel font-bold text-amber-400">
+              Planificador Diario y de Proyectos
+            </h1>
+            <p className="text-xs sm:text-sm text-slate-400 max-w-xl mx-auto">
+              Visualiza tus tareas, gestiona tu tiempo por día, semana y mes, y mantén el registro de tus logros durante 3 meses.
+            </p>
+          </header>
+
+          {/* Tarjetas de Estadísticas Rápidas */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+            <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-4 text-center">
+              <span className="text-2xl font-bold text-amber-400">{stats.total}</span>
+              <p className="text-xs text-slate-400 mt-1">Tareas Registradas</p>
+            </div>
+            <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-4 text-center">
+              <span className="text-2xl font-bold text-emerald-400">{stats.completadas}</span>
+              <p className="text-xs text-slate-400 mt-1">Completadas</p>
+            </div>
+            <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-4 text-center">
+              <span className="text-2xl font-bold text-amber-400">{stats.porcentaje}%</span>
+              <p className="text-xs text-slate-400 mt-1">Efectividad Global</p>
+            </div>
+            <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-4 text-center">
+              <span className="text-2xl font-bold text-indigo-400">{stats.diasPerfectos}</span>
+              <p className="text-xs text-slate-400 mt-1">Días Exitosos (90d)</p>
+            </div>
+          </div>
+
+          {/* Barra de Navegación de Vistas */}
+          <div className="flex flex-wrap justify-center bg-slate-900/80 p-1.5 rounded-2xl border border-slate-800 max-w-xl mx-auto gap-1">
+            <button
+              onClick={() => setVista('dia')}
+              className={`flex-1 min-w-[90px] py-2.5 px-3 rounded-xl font-semibold text-xs sm:text-sm transition-all ${
+                vista === 'dia' ? 'bg-amber-500 text-slate-950 font-bold shadow-md' : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              📅 Día
+            </button>
+            <button
+              onClick={() => setVista('semana')}
+              className={`flex-1 min-w-[90px] py-2.5 px-3 rounded-xl font-semibold text-xs sm:text-sm transition-all ${
+                vista === 'semana' ? 'bg-amber-500 text-slate-950 font-bold shadow-md' : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              📊 Semana
+            </button>
+            <button
+              onClick={() => setVista('mes')}
+              className={`flex-1 min-w-[90px] py-2.5 px-3 rounded-xl font-semibold text-xs sm:text-sm transition-all ${
+                vista === 'mes' ? 'bg-amber-500 text-slate-950 font-bold shadow-md' : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              🗓️ Mes
+            </button>
+            <button
+              onClick={() => setVista('historial')}
+              className={`flex-1 min-w-[110px] py-2.5 px-3 rounded-xl font-semibold text-xs sm:text-sm transition-all ${
+                vista === 'historial' ? 'bg-amber-500 text-slate-950 font-bold shadow-md' : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              📈 Registro 3M
+            </button>
+          </div>
+
+          {/* Formulario para Agregar Tarea */}
+          <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-6 backdrop-blur-sm shadow-xl">
+            <h3 className="text-sm font-bold text-amber-400 uppercase tracking-wider mb-4">
+              ➕ Registrar Nueva Tarea
+            </h3>
+            <form onSubmit={agregarTarea} className="grid grid-cols-1 sm:grid-cols-12 gap-3">
+              <input
+                type="text"
+                value={nuevaTarea}
+                onChange={(e) => setNuevaTarea(e.target.value)}
+                placeholder="¿Qué tarea necesitas programar hoy?"
+                className="sm:col-span-5 bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-slate-100 text-sm focus:outline-none focus:border-amber-500"
+              />
+              <select
+                value={categoriaNueva}
+                onChange={(e) => setCategoriaNueva(e.target.value)}
+                className="sm:col-span-3 bg-slate-950 border border-slate-700 rounded-xl px-3 py-3 text-slate-100 text-sm focus:outline-none focus:border-amber-500"
+              >
+                <option value="Marketing">Marketing</option>
+                <option value="Plataforma">Plataforma</option>
+                <option value="Creación">Creación</option>
+                <option value="Operativo">Operativo</option>
+                <option value="Personal">Personal</option>
+              </select>
+              <input
+                type="date"
+                value={fechaNueva}
+                onChange={(e) => setFechaNueva(e.target.value)}
+                className="sm:col-span-2 bg-slate-950 border border-slate-700 rounded-xl px-3 py-3 text-slate-100 text-sm focus:outline-none focus:border-amber-500"
+              />
+              <button
+                type="submit"
+                className="sm:col-span-2 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-bold rounded-xl px-4 py-3 text-sm transition-all shadow-md"
+              >
+                Agregar
+              </button>
+            </form>
+          </div>
+
+          {/* Controles de Selección de Fecha según la vista */}
+          {vista !== 'historial' && (
+            <div className="flex flex-col sm:flex-row items-center justify-between bg-slate-900/40 border border-slate-800 rounded-2xl p-4 gap-4">
+              <div className="flex items-center gap-3">
+                <span className="text-xs uppercase font-bold text-slate-400">
+                  {vista === 'dia' ? 'Día seleccionado:' : vista === 'semana' ? 'Semana del:' : 'Mes seleccionado:'}
+                </span>
+                <input
+                  type={vista === 'mes' ? 'month' : 'date'}
+                  value={fechaSeleccionada}
+                  onChange={(e) => setFechaSeleccionada(e.target.value)}
+                  className="bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-amber-400 text-sm font-semibold focus:outline-none focus:border-amber-500"
+                />
+              </div>
+              <span className="text-xs text-slate-400 italic">
+                Mostrando {tareasFiltradas.length} tarea(s) en esta vista
+              </span>
+            </div>
+          )}
+
+          {/* VISTA PRINCIPAL: LISTADO DE TAREAS */}
+          {vista !== 'historial' ? (
+            <div className="space-y-3">
+              {tareasFiltradas.length === 0 ? (
+                <div className="text-center py-12 bg-slate-900/40 rounded-2xl border border-slate-800 space-y-2">
+                  <p className="text-slate-400 text-sm">No hay tareas programadas para este filtro o fecha.</p>
+                  <p className="text-xs text-slate-500">Usa el formulario superior para programar tu primera actividad.</p>
+                </div>
+              ) : (
+                tareasFiltradas.map((t) => (
+                  <div
+                    key={t.id}
+                    className={`flex items-center justify-between p-4 rounded-2xl border transition-all duration-300 ${
+                      t.completed
+                        ? 'bg-slate-900/40 border-slate-800/80 opacity-60'
+                        : 'bg-slate-900/80 border-slate-800 hover:border-amber-500/40 shadow-sm'
+                    }`}
+                  >
+                    <div className="flex items-center gap-4">
+                      <button
+                        onClick={() => toggleTarea(t.id)}
+                        className={`w-6 h-6 rounded-lg border flex items-center justify-center transition-all ${
+                          t.completed
+                            ? 'bg-emerald-500 border-emerald-500 text-slate-950 font-bold'
+                            : 'border-slate-600 bg-slate-950 hover:border-amber-400'
+                        }`}
+                      >
+                        {t.completed && '✓'}
+                      </button>
+                      <div>
+                        <p className={`text-sm font-medium ${t.completed ? 'line-through text-slate-400' : 'text-slate-200'}`}>
+                          {t.text}
+                        </p>
+                        <div className="flex items-center gap-2 mt-1">
+                          <span className="text-[10px] uppercase font-bold px-2 py-0.5 rounded bg-amber-500/10 text-amber-300 border border-amber-500/20">
+                            {t.category}
+                          </span>
+                          <span className="text-[11px] text-slate-500">📅 {t.date}</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <button
+                      onClick={() => eliminarTarea(t.id)}
+                      className="text-slate-500 hover:text-red-400 text-xs px-3 py-1.5 rounded-lg transition-all"
+                    >
+                      Eliminar
+                    </button>
+                  </div>
+                ))
+              )}
+            </div>
+          ) : (
+            /* VISTA DE HISTORIAL DE 3 MESES (90 DÍAS) */
+            <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-6 space-y-6 backdrop-blur-sm">
+              <div>
+                <h3 className="text-lg font-cinzel font-bold text-amber-400">
+                  Historial de Cumplimiento (Últimos 3 Meses)
+                </h3>
+                <p className="text-xs text-slate-400 mt-1">
+                  Cada bloque representa un día de tus últimos 90 días registrados. Visualiza tu consistencia y disciplina corporativa.
+                </p>
+              </div>
+
+              <div className="flex flex-wrap gap-2 pt-2">
+                {historial3Meses.map((dia, idx) => (
+                  <div
+                    key={idx}
+                    title={`${dia.fechaStr}: ${dia.completadas}/${dia.total} tareas completadas`}
+                    className={`w-10 h-10 rounded-xl flex flex-col items-center justify-center text-[10px] font-bold border transition-transform hover:scale-110 cursor-pointer ${
+                      dia.estado === 'perfecto'
+                        ? 'bg-emerald-500/20 border-emerald-500 text-emerald-300 shadow-sm shadow-emerald-500/20'
+                        : dia.estado === 'incompleto'
+                        ? 'bg-amber-500/20 border-amber-500 text-amber-300'
+                        : 'bg-slate-950 border-slate-800 text-slate-600'
+                    }`}
+                  >
+                    <span>{dia.fechaStr.split('-')[2]}</span>
+                    <span className="text-[8px] font-normal opacity-70">
+                      {dia.estado === 'perfecto' ? '★' : dia.total > fales ? dia.completadas : '-'}
+                    </span>
+                  </div>
+                ))}
+              </div>
+
+              <div className="flex items-center gap-6 pt-4 border-t border-slate-800 text-xs text-slate-400">
+                <div className="flex items-center gap-2">
+                  <div className="w-3 h-3 rounded bg-emerald-500/20 border border-emerald-500"></div>
+                  <span>Día 100% Completado</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <div className="w-3 h-3 rounded bg-amber-500/20 border border-amber-500"></div>
+                  <span>Día con pendientes</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <div className="w-3 h-3 rounded bg-slate-950 border border-slate-800"></div>
+                  <span>Sin tareas</span>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Footer Corporativo */}
+          <footer className="mt-16 text-center border-t border-slate-800/80 pt-8 pb-4">
+            <p className="text-xs text-slate-500">
+              © {new Date().getFullYear()} Camino Al Inconsciente - Mario Paredes. Todos los derechos reservados.
+            </p>
+          </footer>
+
+        </div>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+  </script>
+</body>
+</html>
