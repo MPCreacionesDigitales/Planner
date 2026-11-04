@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Planificador Diario - Camino Al Inconsciente</title>
+  <title>Planificador Avanzado - Camino Al Inconsciente</title>
 
   <!-- Tailwind CSS CDN -->
   <script src="https://cdn.tailwindcss.com"></script>
@@ -67,11 +67,10 @@
     function App() {
       // Estado de tareas: array de objetos { id, text, date (YYYY-MM-DD), completed, category }
       const [tareas, setTareas] = useState(() => {
-        const saved = localStorage.getItem('camino_planner_tareas');
+        const saved = localStorage.getItem('camino_planner_tareas_v2');
         if (saved) {
           try { return JSON.parse(saved); } catch (e) { return []; }
         }
-        // Tareas de ejemplo iniciales para que el panel luzca vivo
         const hoy = new Date().toISOString().split('T')[0];
         return [
           { id: 1, text: "Optimizar campañas de Meta (9:16 y 4:5)", date: hoy, completed: true, category: "Marketing" },
@@ -82,13 +81,16 @@
 
       const [nuevaTarea, setNuevaTarea] = useState('');
       const [categoriaNueva, setCategoriaNueva] = useState('Marketing');
-      const [fechaNueva, setFechaNueva] = useState(() => new Date().toISOString().split('T')[0]);
-      const [vista, setVista] = useState('dia'); // 'dia', 'semana', 'mes', 'historial'
       const [fechaSeleccionada, setFechaSeleccionada] = useState(() => new Date().toISOString().split('T')[0]);
+      const [vista, setVista] = useState('dia'); // 'dia', 'semana', 'mes', 'historial'
+      
+      // Estado para el modal/panel de duplicar a multiples días
+      const [tareaADuplicar, setTareaADuplicar] = useState(null);
+      const [diasSeleccionadosMultiples, setDiasSeleccionadosMultiples] = useState([]);
 
-      // Guardar en LocalStorage cada vez que cambien las tareas
+      // Guardar en LocalStorage
       useEffect(() => {
-        localStorage.setItem('camino_planner_tareas', JSON.stringify(tareas));
+        localStorage.setItem('camino_planner_tareas_v2', JSON.stringify(tareas));
       }, [tareas]);
 
       // Añadir nueva tarea
@@ -99,7 +101,7 @@
         const nueva = {
           id: Date.now(),
           text: nuevaTarea.trim(),
-          date: fechaNueva || new Date().toISOString().split('T')[0],
+          date: fechaSeleccionada || new Date().toISOString().split('T')[0],
           completed: false,
           category: categoriaNueva
         };
@@ -118,29 +120,72 @@
         setTareas(tareas.filter(t => t.id !== id));
       };
 
-      // Formatear fechas legibles
-      const formatearFechaLegible = (fechaStr) => {
-        const [yyyy, mm, dd] = fechaStr.split('-');
-        const fecha = new Date(yyyy, mm - 1, dd);
-        return fecha.toLocaleDateString('es-ES', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+      // Duplicar tarea exacta a un solo día (mañana o fecha actual)
+      const duplicarTareaUnica = (tarea) => {
+        const [y, m, d] = tarea.date.split('-').map(Number);
+        const proxFecha = new Date(y, m - 1, d + 1).toISOString().split('T')[0];
+        const duplicada = {
+          ...tarea,
+          id: Date.now() + Math.random(),
+          date: proxFecha,
+          completed: false
+        };
+        setTareas([duplicada, ...tareas]);
       };
 
-      // Filtrar tareas según la vista activa
-      const tareasFiltradas = useMemo(() => {
-        const hoyDate = new Date(fechaSeleccionada);
+      // Replicar tarea a múltiples días seleccionados
+      const aplicarMultiplesDias = () => {
+        if (!tareaADuplicar || diasSeleccionadosMultiples.length === 0) return;
 
+        const nuevasCopias = diasSeleccionadosMultiples.map(fecha => ({
+          ...tareaADuplicar,
+          id: Date.now() + Math.random(),
+          date: fecha,
+          completed: false
+        }));
+
+        setTareas([...nuevasCopias, ...tareas]);
+        setTareaADuplicar(null);
+        setDiasSeleccionadosMultiples([]);
+      };
+
+      // Navegación rápida por días (+1 / -1)
+      const cambiarDia = (dias) => {
+        const [y, m, d] = fechaSeleccionada.split('-').map(Number);
+        const curr = new Date(y, m - 1, d + dias);
+        setFechaSeleccionada(curr.toISOString().split('T')[0]);
+      };
+
+      // Obtener los 7 días de la semana actual basados en fechaSeleccionada
+      const diasDeLaSemana = useMemo(() => {
+        const [y, m, d] = fechaSeleccionada.split('-').map(Number);
+        const curr = new Date(y, m - 1, d);
+        const dayOfWeek = curr.getDay();
+        const diffToMonday = curr.getDate() - dayOfWeek + (dayOfWeek === 0 ? -6 : 1);
+        
+        const lunes = new Date(curr.setDate(diffToMonday));
+        const semana = [];
+
+        for (let i = 0; i < 7; i++) {
+          const diaActual = new Date(lunes);
+          diaActual.setDate(lunes.getDate() + i);
+          semana.push({
+            fechaStr: diaActual.toISOString().split('T')[0],
+            nombre: diaActual.toLocaleDateString('es-ES', { weekday: 'short' }),
+            numero: diaActual.getDate(),
+            mes: diaActual.toLocaleDateString('es-ES', { month: 'short' })
+          });
+        }
+        return semana;
+      }, [fechaSeleccionada]);
+
+      // Tareas filtradas por vista
+      const tareasFiltradas = useMemo(() => {
         if (vista === 'dia') {
           return tareas.filter(t => t.date === fechaSeleccionada);
         } else if (vista === 'semana') {
-          // Obtener inicio y fin de semana de la fecha seleccionada
-          const curr = new Date(fechaSeleccionada);
-          const firstDayOfWeek = new Date(curr.setDate(curr.getDate() - curr.getDay() + 1));
-          const lastDayOfWeek = new Date(curr.setDate(firstDayOfWeek.getDate() + 6));
-
-          return tareas.filter(t => {
-            const tDate = new Date(t.date);
-            return tDate >= firstDayOfWeek && tDate <= lastDayOfWeek;
-          });
+          const fechasSemana = diasDeLaSemana.map(d => d.fechaStr);
+          return tareas.filter(t => fechasSemana.includes(t.date));
         } else if (vista === 'mes') {
           const [selYear, selMonth] = fechaSeleccionada.split('-');
           return tareas.filter(t => {
@@ -149,71 +194,58 @@
           });
         }
         return tareas;
-      }, [tareas, vista, fechaSeleccionada]);
+      }, [tareas, vista, fechaSeleccionada, diasDeLaSemana]);
 
-      // Generar reporte de los últimos 90 días (3 meses) para cumplimiento histórico
+      // Historial 3 meses (90 días)
       const historial3Meses = useMemo(() => {
         const dias = [];
         const hoy = new Date();
-        
         for (let i = 0; i < 90; i++) {
           const d = new Date(hoy);
           d.setDate(hoy.getDate() - i);
           const fechaStr = d.toISOString().split('T')[0];
-
           const tareasDelDia = tareas.filter(t => t.date === fechaStr);
           const total = tareasDelDia.length;
           const completadas = tareasDelDia.filter(t => t.completed).length;
           
-          let estado = 'vacio'; // 'vacio', 'incompleto', 'perfecto'
+          let estado = 'vacio';
           if (total > 0) {
             estado = completadas === total ? 'perfecto' : 'incompleto';
           }
-
-          dias.push({
-            fechaStr,
-            total,
-            completadas,
-            estado,
-            label: d.toLocaleDateString('es-ES', { day: 'numeric', month: 'short' })
-          });
+          dias.push({ fechaStr, total, completadas, estado });
         }
         return dias;
       }, [tareas]);
 
-      // Estadísticas generales
       const stats = useMemo(() => {
         const total = tareas.length;
         const completadas = tareas.filter(t => t.completed).length;
         const porcentaje = total > 0 ? Math.round((completadas / total) * 100) : 0;
-        
-        // Días perfectos en los últimos 90 días
         const diasPerfectos = historial3Meses.filter(d => d.estado === 'perfecto').length;
-
         return { total, completadas, porcentaje, diasPerfectos };
       }, [tareas, historial3Meses]);
 
       return (
-        <div className="max-w-4xl mx-auto px-4 py-8 space-y-8">
+        <div className="max-w-5xl mx-auto px-4 py-8 space-y-8">
           
-          {/* Header Minimalista y Elegante */}
+          {/* Header */}
           <header className="text-center space-y-2 border-b border-slate-800/80 pb-6">
             <span className="text-xs font-bold tracking-widest text-amber-400 uppercase block">
-              Camino Al Inconsciente • Productividad Consciente
+              Camino Al Inconsciente • Gestión de Proyectos
             </span>
             <h1 className="text-3xl sm:text-4xl font-cinzel font-bold text-amber-400">
-              Planificador Diario y de Proyectos
+              Planificador Interactivo Avanzado
             </h1>
             <p className="text-xs sm:text-sm text-slate-400 max-w-xl mx-auto">
-              Visualiza tus tareas, gestiona tu tiempo por día, semana y mes, y mantén el registro de tus logros durante 3 meses.
+              Organiza tu agenda diaria, visualiza tu semana completa en formato calendario, duplica tareas y replícalas a múltiples días con facilidad.
             </p>
           </header>
 
-          {/* Tarjetas de Estadísticas Rápidas */}
+          {/* Estadísticas */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
             <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-4 text-center">
               <span className="text-2xl font-bold text-amber-400">{stats.total}</span>
-              <p className="text-xs text-slate-400 mt-1">Tareas Registradas</p>
+              <p className="text-xs text-slate-400 mt-1">Total Tareas</p>
             </div>
             <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-4 text-center">
               <span className="text-2xl font-bold text-emerald-400">{stats.completadas}</span>
@@ -221,7 +253,7 @@
             </div>
             <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-4 text-center">
               <span className="text-2xl font-bold text-amber-400">{stats.porcentaje}%</span>
-              <p className="text-xs text-slate-400 mt-1">Efectividad Global</p>
+              <p className="text-xs text-slate-400 mt-1">Efectividad</p>
             </div>
             <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-4 text-center">
               <span className="text-2xl font-bold text-indigo-400">{stats.diasPerfectos}</span>
@@ -229,7 +261,7 @@
             </div>
           </div>
 
-          {/* Barra de Navegación de Vistas */}
+          {/* Navegación de Vistas */}
           <div className="flex flex-wrap justify-center bg-slate-900/80 p-1.5 rounded-2xl border border-slate-800 max-w-xl mx-auto gap-1">
             <button
               onClick={() => setVista('dia')}
@@ -245,7 +277,7 @@
                 vista === 'semana' ? 'bg-amber-500 text-slate-950 font-bold shadow-md' : 'text-slate-400 hover:text-slate-200'
               }`}
             >
-              📊 Semana
+              📊 Calendario Semanal
             </button>
             <button
               onClick={() => setVista('mes')}
@@ -265,18 +297,18 @@
             </button>
           </div>
 
-          {/* Formulario para Agregar Tarea */}
+          {/* Formulario de Registro Rápido */}
           <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-6 backdrop-blur-sm shadow-xl">
             <h3 className="text-sm font-bold text-amber-400 uppercase tracking-wider mb-4">
-              ➕ Registrar Nueva Tarea
+              ➕ Programar Tarea para el {fechaSeleccionada}
             </h3>
             <form onSubmit={agregarTarea} className="grid grid-cols-1 sm:grid-cols-12 gap-3">
               <input
                 type="text"
                 value={nuevaTarea}
                 onChange={(e) => setNuevaTarea(e.target.value)}
-                placeholder="¿Qué tarea necesitas programar hoy?"
-                className="sm:col-span-5 bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-slate-100 text-sm focus:outline-none focus:border-amber-500"
+                placeholder="Escribe tu tarea o pendiente..."
+                className="sm:col-span-6 bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-slate-100 text-sm focus:outline-none focus:border-amber-500"
               />
               <select
                 value={categoriaNueva}
@@ -291,64 +323,66 @@
               </select>
               <input
                 type="date"
-                value={fechaNueva}
-                onChange={(e) => setFechaNueva(e.target.value)}
-                className="sm:col-span-2 bg-slate-950 border border-slate-700 rounded-xl px-3 py-3 text-slate-100 text-sm focus:outline-none focus:border-amber-500"
+                value={fechaSeleccionada}
+                onChange={(e) => setFechaSeleccionada(e.target.value)}
+                className="sm:col-span-3 bg-slate-950 border border-slate-700 rounded-xl px-3 py-3 text-amber-400 text-sm font-bold focus:outline-none focus:border-amber-500"
               />
               <button
                 type="submit"
-                className="sm:col-span-2 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-bold rounded-xl px-4 py-3 text-sm transition-all shadow-md"
+                className="sm:col-span-12 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-bold rounded-xl px-4 py-3 text-sm transition-all shadow-md mt-1"
               >
-                Agregar
+                Guardar Tarea
               </button>
             </form>
           </div>
 
-          {/* Controles de Selección de Fecha según la vista */}
-          {vista !== 'historial' && (
-            <div className="flex flex-col sm:flex-row items-center justify-between bg-slate-900/40 border border-slate-800 rounded-2xl p-4 gap-4">
-              <div className="flex items-center gap-3">
-                <span className="text-xs uppercase font-bold text-slate-400">
-                  {vista === 'dia' ? 'Día seleccionado:' : vista === 'semana' ? 'Semana del:' : 'Mes seleccionado:'}
-                </span>
+          {/* Controles de Día Individual */}
+          {vista === 'dia' && (
+            <div className="flex items-center justify-between bg-slate-900/50 border border-slate-800 rounded-2xl p-4">
+              <button 
+                onClick={() => cambiarDia(-1)}
+                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-xs font-semibold"
+              >
+                ← Día Anterior
+              </button>
+              <div className="flex items-center gap-2">
+                <span className="text-xs uppercase font-bold text-slate-400">Fecha activa:</span>
                 <input
-                  type={vista === 'mes' ? 'month' : 'date'}
+                  type="date"
                   value={fechaSeleccionada}
                   onChange={(e) => setFechaSeleccionada(e.target.value)}
-                  className="bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-amber-400 text-sm font-semibold focus:outline-none focus:border-amber-500"
+                  className="bg-slate-950 border border-slate-700 rounded-xl px-3 py-1.5 text-amber-400 text-sm font-bold focus:outline-none"
                 />
               </div>
-              <span className="text-xs text-slate-400 italic">
-                Mostrando {tareasFiltradas.length} tarea(s) en esta vista
-              </span>
+              <button 
+                onClick={() => cambiarDia(1)}
+                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-xs font-semibold"
+              >
+                Día Siguiente →
+              </button>
             </div>
           )}
 
-          {/* VISTA PRINCIPAL: LISTADO DE TAREAS */}
-          {vista !== 'historial' ? (
+          {/* VISTA 1: DÍA */}
+          {vista === 'dia' && (
             <div className="space-y-3">
               {tareasFiltradas.length === 0 ? (
                 <div className="text-center py-12 bg-slate-900/40 rounded-2xl border border-slate-800 space-y-2">
-                  <p className="text-slate-400 text-sm">No hay tareas programadas para este filtro o fecha.</p>
-                  <p className="text-xs text-slate-500">Usa el formulario superior para programar tu primera actividad.</p>
+                  <p className="text-slate-400 text-sm">No hay tareas programadas para este día.</p>
                 </div>
               ) : (
                 tareasFiltradas.map((t) => (
                   <div
                     key={t.id}
-                    className={`flex items-center justify-between p-4 rounded-2xl border transition-all duration-300 ${
-                      t.completed
-                        ? 'bg-slate-900/40 border-slate-800/80 opacity-60'
-                        : 'bg-slate-900/80 border-slate-800 hover:border-amber-500/40 shadow-sm'
+                    className={`flex flex-col sm:flex-row items-start sm:items-center justify-between p-4 rounded-2xl border gap-3 transition-all ${
+                      t.completed ? 'bg-slate-900/40 border-slate-800/80 opacity-60' : 'bg-slate-900/80 border-slate-800 shadow-sm'
                     }`}
                   >
-                    <div className="flex items-center gap-4">
+                    <div className="flex items-center gap-3">
                       <button
                         onClick={() => toggleTarea(t.id)}
-                        className={`w-6 h-6 rounded-lg border flex items-center justify-center transition-all ${
-                          t.completed
-                            ? 'bg-emerald-500 border-emerald-500 text-slate-950 font-bold'
-                            : 'border-slate-600 bg-slate-950 hover:border-amber-400'
+                        className={`w-6 h-6 rounded-lg border flex items-center justify-center shrink-0 transition-all ${
+                          t.completed ? 'bg-emerald-500 border-emerald-500 text-slate-950 font-bold' : 'border-slate-600 bg-slate-950 hover:border-amber-400'
                         }`}
                       >
                         {t.completed && '✓'}
@@ -357,34 +391,159 @@
                         <p className={`text-sm font-medium ${t.completed ? 'line-through text-slate-400' : 'text-slate-200'}`}>
                           {t.text}
                         </p>
-                        <div className="flex items-center gap-2 mt-1">
-                          <span className="text-[10px] uppercase font-bold px-2 py-0.5 rounded bg-amber-500/10 text-amber-300 border border-amber-500/20">
-                            {t.category}
-                          </span>
-                          <span className="text-[11px] text-slate-500">📅 {t.date}</span>
-                        </div>
+                        <span className="text-[10px] uppercase font-bold px-2 py-0.5 rounded bg-amber-500/10 text-amber-300 border border-amber-500/25 mt-1 inline-block">
+                          {t.category}
+                        </span>
                       </div>
                     </div>
 
-                    <button
-                      onClick={() => eliminarTarea(t.id)}
-                      className="text-slate-500 hover:text-red-400 text-xs px-3 py-1.5 rounded-lg transition-all"
-                    >
-                      Eliminar
-                    </button>
+                    <div className="flex items-center gap-2 self-end sm:self-auto">
+                      <button
+                        onClick={() => duplicarTareaUnica(t)}
+                        title="Duplicar al día siguiente"
+                        className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-amber-400 text-xs rounded-lg transition-all"
+                      >
+                        📋 Duplicar
+                      </button>
+                      <button
+                        onClick={() => setTareaADuplicar(t)}
+                        title="Aplicar a múltiples días"
+                        className="px-3 py-1.5 bg-indigo-950/60 hover:bg-indigo-900 text-indigo-300 border border-indigo-800/60 text-xs rounded-lg transition-all"
+                      >
+                        📅 Replicar a varios días
+                      </button>
+                      <button
+                        onClick={() => eliminarTarea(t.id)}
+                        className="px-3 py-1.5 text-slate-500 hover:text-red-400 text-xs transition-all"
+                      >
+                        Eliminar
+                      </button>
+                    </div>
                   </div>
                 ))
               )}
             </div>
-          ) : (
-            /* VISTA DE HISTORIAL DE 3 MESES (90 DÍAS) */
-            <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-6 space-y-6 backdrop-blur-sm">
+          )}
+
+          {/* VISTA 2: CALENDARIO SEMANAL */}
+          {vista === 'semana' && (
+            <div className="space-y-4">
+              <div className="flex justify-between items-center bg-slate-900/60 p-4 rounded-2xl border border-slate-800">
+                <span className="text-xs text-slate-400 uppercase font-bold">Vista de Calendario Semanal Completo</span>
+                <input
+                  type="date"
+                  value={fechaSeleccionada}
+                  onChange={(e) => setFechaSeleccionada(e.target.value)}
+                  className="bg-slate-950 border border-slate-700 rounded-xl px-3 py-1.5 text-amber-400 text-sm font-bold"
+                />
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-7 gap-3">
+                {diasDeLaSemana.map((dia) => {
+                  const tareasDelDia = tareas.filter(t => t.date === dia.fechaStr);
+                  const esHoy = dia.fechaStr === new Date().toISOString().split('T')[0];
+
+                  return (
+                    <div 
+                      key={dia.fechaStr} 
+                      className={`bg-slate-900/80 border rounded-2xl p-3 flex flex-col justify-between ${
+                        esHoy ? 'border-amber-500/80 shadow-lg shadow-amber-500/10' : 'border-slate-800'
+                      }`}
+                    >
+                      <div>
+                        <div className="flex justify-between items-center border-b border-slate-800 pb-2 mb-2">
+                          <span className="text-xs uppercase font-bold text-amber-400">{dia.nombre}</span>
+                          <span className={`text-xs px-2 py-0.5 rounded-lg font-bold ${esHoy ? 'bg-amber-500 text-slate-950' : 'bg-slate-950 text-slate-300'}`}>
+                            {dia.numero} {dia.mes}
+                          </span>
+                        </div>
+
+                        <div className="space-y-2 min-h-[140px]">
+                          {tareasDelDia.length === 0 ? (
+                            <p className="text-[11px] text-slate-500 italic text-center py-6">Sin tareas</p>
+                          ) : (
+                            tareasDelDia.map(t => (
+                              <div key={t.id} className="bg-slate-950/80 p-2 rounded-xl border border-slate-800/80 text-xs space-y-1">
+                                <div className="flex items-start justify-between gap-1">
+                                  <span className={`font-medium ${t.completed ? 'line-through text-slate-500' : 'text-slate-200'}`}>
+                                    {t.text}
+                                  </span>
+                                  <button onClick={() => toggleTarea(t.id)} className={`w-4 h-4 rounded border shrink-0 flex items-center justify-center text-[10px] ${t.completed ? 'bg-emerald-500 border-emerald-500 text-slate-950' : 'border-slate-600'}`}>
+                                    {t.completed && '✓'}
+                                  </button>
+                                </div>
+                                <div className="flex justify-between items-center pt-1">
+                                  <span className="text-[9px] text-amber-400 font-bold">{t.category}</span>
+                                  <button onClick={() => setTareaADuplicar(t)} title="Replicar" className="text-[10px] text-indigo-400 hover:underline">
+                                    📋
+                                  </button>
+                                </div>
+                              </div>
+                            ))
+                          )}
+                        </div>
+                      </div>
+
+                      <button
+                        onClick={() => {
+                          setFechaSeleccionada(dia.fechaStr);
+                          setVista('dia');
+                        }}
+                        className="w-full mt-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-[11px] font-semibold transition-all"
+                      >
+                        + Agregar aquí
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* VISTA 3: MES */}
+          {vista === 'mes' && (
+            <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-6 space-y-4">
+              <div className="flex justify-between items-center">
+                <h3 className="text-lg font-cinzel font-bold text-amber-400">Resumen del Mes</h3>
+                <input
+                  type="month"
+                  value={fechaSeleccionada.slice(0, 7)}
+                  onChange={(e) => setFechaSeleccionada(`${e.target.value}-01`)}
+                  className="bg-slate-950 border border-slate-700 rounded-xl px-3 py-1.5 text-amber-400 text-sm font-bold"
+                />
+              </div>
+              <p className="text-xs text-slate-400">
+                Mostrando todas las tareas programadas para el mes seleccionado ({tareasFiltradas.length} total).
+              </p>
+              <div className="space-y-2 pt-2">
+                {tareasFiltradas.length === 0 ? (
+                  <p className="text-xs text-slate-500 italic py-4">No hay tareas para este mes.</p>
+                ) : (
+                  tareasFiltradas.map(t => (
+                    <div key={t.id} className="flex items-center justify-between bg-slate-900/80 p-3 rounded-xl border border-slate-800 text-xs">
+                      <div className="flex items-center gap-3">
+                        <span className="text-amber-400 font-bold">📅 {t.date}</span>
+                        <span className={t.completed ? 'line-through text-slate-500' : 'text-slate-200'}>{t.text}</span>
+                      </div>
+                      <span className="text-[10px] uppercase font-bold px-2 py-0.5 rounded bg-amber-500/10 text-amber-300 border border-amber-500/25">
+                        {t.category}
+                      </span>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* VISTA 4: HISTORIAL 3 MESES */}
+          {vista === 'historial' && (
+            <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-6 space-y-6">
               <div>
                 <h3 className="text-lg font-cinzel font-bold text-amber-400">
                   Historial de Cumplimiento (Últimos 3 Meses)
                 </h3>
                 <p className="text-xs text-slate-400 mt-1">
-                  Cada bloque representa un día de tus últimos 90 días registrados. Visualiza tu consistencia y disciplina corporativa.
+                  Registro detallado de tus últimos 90 días de productividad y disciplina.
                 </p>
               </div>
 
@@ -392,10 +551,10 @@
                 {historial3Meses.map((dia, idx) => (
                   <div
                     key={idx}
-                    title={`${dia.fechaStr}: ${dia.completadas}/${dia.total} tareas completadas`}
+                    title={`${dia.fechaStr}: ${dia.completadas}/${dia.total} completadas`}
                     className={`w-10 h-10 rounded-xl flex flex-col items-center justify-center text-[10px] font-bold border transition-transform hover:scale-110 cursor-pointer ${
                       dia.estado === 'perfecto'
-                        ? 'bg-emerald-500/20 border-emerald-500 text-emerald-300 shadow-sm shadow-emerald-500/20'
+                        ? 'bg-emerald-500/20 border-emerald-500 text-emerald-300 shadow-sm'
                         : dia.estado === 'incompleto'
                         ? 'bg-amber-500/20 border-amber-500 text-amber-300'
                         : 'bg-slate-950 border-slate-800 text-slate-600'
@@ -403,25 +562,71 @@
                   >
                     <span>{dia.fechaStr.split('-')[2]}</span>
                     <span className="text-[8px] font-normal opacity-70">
-                      {dia.estado === 'perfecto' ? '★' : dia.total > fales ? dia.completadas : '-'}
+                      {dia.estado === 'perfecto' ? '★' : '-'}
                     </span>
                   </div>
                 ))}
               </div>
+            </div>
+          )}
 
-              <div className="flex items-center gap-6 pt-4 border-t border-slate-800 text-xs text-slate-400">
-                <div className="flex items-center gap-2">
-                  <div className="w-3 h-3 rounded bg-emerald-500/20 border border-emerald-500"></div>
-                  <span>Día 100% Completado</span>
+          {/* MODAL / PANEL EXPANDIBLE PARA APLICAR TAREA A MÚLTIPLES DÍAS */}
+          {tareaADuplicar && (
+            <div className="bg-slate-900 border border-amber-500/50 rounded-2xl p-6 space-y-4 shadow-2xl">
+              <div className="flex justify-between items-center border-b border-slate-800 pb-3">
+                <h4 className="text-sm font-bold text-amber-400">
+                  📅 Replicar tarea a múltiples días
+                </h4>
+                <button onClick={() => setTareaADuplicar(null)} className="text-slate-400 hover:text-white text-xs">✕ Cerrar</button>
+              </div>
+
+              <p className="text-xs text-slate-300">
+                Tarea seleccionada: <strong className="text-amber-300">"{tareaADuplicar.text}"</strong>
+              </p>
+
+              <div>
+                <label className="block text-xs font-medium text-slate-400 uppercase tracking-wider mb-2">
+                  Selecciona los días de esta semana para aplicar la tarea:
+                </label>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                  {diasDeLaSemana.map(d => {
+                    const seleccionado = diasSeleccionadosMultiples.includes(d.fechaStr);
+                    return (
+                      <button
+                        key={d.fechaStr}
+                        type="button"
+                        onClick={() => {
+                          if (seleccionado) {
+                            setDiasSeleccionadosMultiples(diasSeleccionadosMultiples.filter(f => f !== d.fechaStr));
+                          } else {
+                            setDiasSeleccionadosMultiples([...diasSeleccionadosMultiples, d.fechaStr]);
+                          }
+                        }}
+                        className={`p-2.5 rounded-xl border text-xs font-semibold transition-all text-center ${
+                          seleccionado ? 'bg-amber-500 border-amber-500 text-slate-950 font-bold' : 'bg-slate-950 border-slate-800 text-slate-300'
+                        }`}
+                      >
+                        {d.nombre} {d.numero}
+                      </button>
+                    );
+                  })}
                 </div>
-                <div className="flex items-center gap-2">
-                  <div className="w-3 h-3 rounded bg-amber-500/20 border border-amber-500"></div>
-                  <span>Día con pendientes</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <div className="w-3 h-3 rounded bg-slate-950 border border-slate-800"></div>
-                  <span>Sin tareas</span>
-                </div>
+              </div>
+
+              <div className="flex justify-end gap-3 pt-2">
+                <button
+                  onClick={() => setTareaADuplicar(null)}
+                  className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded-xl"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={aplicarMultiplesDias}
+                  disabled={diasSeleccionadosMultiples.length === 0}
+                  className="px-5 py-2 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 text-xs font-bold rounded-xl shadow-md disabled:opacity-50"
+                >
+                  Aplicar Tarea a Días Seleccionados
+                </button>
               </div>
             </div>
           )}
